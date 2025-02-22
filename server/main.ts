@@ -19,7 +19,7 @@ Meteor.startup(() => {
         const data = await response.json();
 
         // Log the raw response data
-        console.log('Response from SafeBooru:', data);
+        //console.log('Response from SafeBooru:', data);
 
         // Check if the response contains the expected data
         if (data && Array.isArray(data) && data.length >= 2) {

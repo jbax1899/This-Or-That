@@ -14,7 +14,9 @@
     "meteor-node-stubs": "^1.2.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-lightbox-component": "^1.2.1"
+    "react-lightbox-component": "^1.2.1",
+    "three": "^0.173.0",
+    "vanta": "^0.5.24"
   },
   "devDependencies": {
     "@types/meteor": "^2.9.8",
@@ -22,6 +24,7 @@
     "@types/node": "^18.13.0",
     "@types/react": "^18.0.26",
     "@types/react-dom": "^18.0.10",
+    "@types/three": "^0.173.0",
     "typescript": "^4.9.4"
   },
   "meteor": {

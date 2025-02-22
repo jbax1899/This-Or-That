@@ -45,16 +45,18 @@ export const App = () => {
     <div>
       <h1>This or That</h1>
       <div className="image-container">
-        <a href={image1 || '#'} data-lightbox="image" data-title="Image 1">
-          <img src={image1 || ''} alt="Image 1" />
-        </a>
-        <a href={image2 || '#'} data-lightbox="image" data-title="Image 2">
-          <img src={image2 || ''} alt="Image 2" />
-        </a>
-      </div>
-      <div className="button-container">
-        <button onClick={() => handleChoice(1)}>Choose Image 1</button>
-        <button onClick={() => handleChoice(2)}>Choose Image 2</button>
+        <img 
+          src={image1 || '#'} 
+          alt="Image 1" 
+          style={{ cursor: 'pointer' }} 
+          onClick={() => handleChoice(1)} 
+        />
+        <img 
+          src={image2 || '#'} 
+          alt="Image 2" 
+          style={{ cursor: 'pointer' }} 
+          onClick={() => handleChoice(2)} 
+        />
       </div>
     </div>
   );
