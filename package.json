@@ -10,9 +10,11 @@
   "dependencies": {
     "@babel/runtime": "^7.20.7",
     "imports": "^1.0.0",
+    "lightbox2": "^2.11.5",
     "meteor-node-stubs": "^1.2.5",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-lightbox-component": "^1.2.1"
   },
   "devDependencies": {
     "@types/meteor": "^2.9.8",
