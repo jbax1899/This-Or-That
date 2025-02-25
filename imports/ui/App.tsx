@@ -5,6 +5,7 @@ export const App = () => {
   const [image1, setImage1] = useState<{ url: string; tags: string[] } | null>(null);
   const [image2, setImage2] = useState<{ url: string; tags: string[] } | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [sessionId, setSessionId] = useState<string>(''); // Store session ID
 
   // Function to fetch new images from the server
   const fetchImages = async () => {
@@ -29,8 +30,15 @@ export const App = () => {
     }
   };
 
-  // UseEffect to fetch images on component mount
+  // UseEffect to generate sessionId and fetch images on component mount
   useEffect(() => {
+    // Generate a new session ID if not already set
+    let storedSessionId = localStorage.getItem('sessionId');
+    if (!storedSessionId) {
+      storedSessionId = Math.random().toString(36).substring(2); // Generate a random session ID
+      localStorage.setItem('sessionId', storedSessionId); // Store it in localStorage
+    }
+    setSessionId(storedSessionId); // Set the sessionId in state
     fetchImages(); // Fetch images when the component mounts
   }, []);
 
@@ -41,11 +49,11 @@ export const App = () => {
     const chosenImage = imageNumber === 1 ? image1 : image2;
     const unchosenImage = imageNumber === 1 ? image2 : image1;
 
-    console.log('Chosen Image:', chosenImage.url, 'Tags:', chosenImage.tags);
-    console.log('Unchosen Image:', unchosenImage.url, 'Tags:', unchosenImage.tags);
+    //console.log('Chosen Image:', chosenImage.url, 'Tags:', chosenImage.tags);
+    //console.log('Unchosen Image:', unchosenImage.url, 'Tags:', unchosenImage.tags);
 
-    // Call server method to update tag weights
-    Meteor.call('updateTagWeights', chosenImage.tags, unchosenImage.tags);
+    // Call server method to update tag weights, passing sessionId
+    Meteor.call('updateTagWeights', chosenImage.tags, unchosenImage.tags, sessionId);
 
     // Fetch new images after the choice is made
     fetchImages();
