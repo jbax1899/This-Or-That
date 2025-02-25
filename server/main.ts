@@ -1,56 +1,97 @@
 import { Meteor } from 'meteor/meteor';
-import { UserSessionTags } from '../imports/api/userSessionTags';
+import { UserSessions } from '../imports/api/userSessions';
 import { CachedImages } from '../imports/api/cachedImages';
 import { TagData } from '../imports/api/tagData';
 
 const CACHED_MAX = 1000; // Maximum number of images to cache
+const IGNORED_TAGS = new Set([
+  "highres",
+]);
 
 // Function to get tag scores
 const getTagScore = async () => {
   return await TagData.find({}, { fields: { _id: 1, score: 1 } }).fetchAsync();
 };
 
-// Define Meteor methods BEFORE they are used
 Meteor.methods({
   'getTagScore': getTagScore,
 
-  'updateTagWeights': async function (chosenTags: string[], unchosenTags: string[], sessionId: string) {
+  'updateTagWeights': async function (chosenTags: string[], unchosenTags: string[], imageId: string, sessionId: string) {
     try {
-      console.log(`Updating tag weights for session: ${sessionId}...`);
+      // Check if the user session exists
+      let userSession = await UserSessions.findOneAsync({ _id: sessionId });
+      if (!userSession) {
+        // If the session doesn't exist, create it
+        userSession = {
+          _id: sessionId,
+          tags: [],
+          imagesSeen: [],
+          updatedAt: new Date(),
+        };
+        await UserSessions.insertAsync(userSession);
+        console.log(`Created new user session for session ID: ${sessionId}`);
+      }
 
       // Increase weight for chosen tags
       for (const tag of chosenTags) {
-        const existingTag = await UserSessionTags.findOneAsync({ sessionId, tag });
+        const existingTag = await UserSessions.findOneAsync({ _id: sessionId, 'tags.tag': tag });
 
         if (existingTag) {
-          await UserSessionTags.updateAsync(
-            { sessionId, tag },
-            { $inc: { weight: 1 }, $set: { updatedAt: new Date() } }
+          await UserSessions.updateAsync(
+            { _id: sessionId, 'tags.tag': tag },
+            { $inc: { 'tags.$.weight': 1 }, $set: { updatedAt: new Date() } }
           );
         } else {
-          await UserSessionTags.insertAsync({ sessionId, tag, weight: 1, updatedAt: new Date() });
+          await UserSessions.updateAsync(
+            { _id: sessionId },
+            {
+              $push: {
+                tags: { tag, weight: 1 }
+              },
+              $set: { updatedAt: new Date() }
+            }
+          );
         }
       }
 
       // Decrease weight for unchosen tags
       for (const tag of unchosenTags) {
-        const existingTag = await UserSessionTags.findOneAsync({ sessionId, tag });
+        const existingTag = await UserSessions.findOneAsync({ _id: sessionId, 'tags.tag': tag });
 
         if (existingTag) {
-          await UserSessionTags.updateAsync(
-            { sessionId, tag },
-            { $inc: { weight: -1 }, $set: { updatedAt: new Date() } }
+          await UserSessions.updateAsync(
+            { _id: sessionId, 'tags.tag': tag },
+            { $inc: { 'tags.$.weight': -1 }, $set: { updatedAt: new Date() } }
           );
         } else {
-          await UserSessionTags.insertAsync({ sessionId, tag, weight: -1, updatedAt: new Date() });
+          await UserSessions.updateAsync(
+            { _id: sessionId },
+            {
+              $push: {
+                tags: { tag, weight: -1 }
+              },
+              $set: { updatedAt: new Date() }
+            }
+          );
         }
       }
+
+      // Add the image to the imagesSeen list in the session
+      await UserSessions.updateAsync(
+        { _id: sessionId },
+        {
+          $addToSet: { imagesSeen: imageId }, // Use $addToSet to avoid duplicates
+          $set: { updatedAt: new Date() }
+        }
+      );
+      console.log(`Added image ID ${imageId} to imagesSeen for session ${sessionId}`);
+
     } catch (error) {
       console.error('Error updating tag weights for session:', error);
     }
   },
 
-  'getImageFromSafeBooru': async function () {
+  'OLD_getImageFromSafeBooru': async function () {
     try {
       // Generate a random page number
       const randomPage = Math.floor(Math.random() * 100) + 1;
@@ -83,7 +124,66 @@ Meteor.methods({
         throw new Meteor.Error('api-error', 'Failed to fetch images: unknown error');
       }
     }
-  }
+  },
+
+  'getRecommendedImages': async function (sessionId: string) {
+    try {
+      console.log(`Fetching recommended images for session: ${sessionId}`);
+
+      // Fetch user-specific tag weights
+      const userSession = await UserSessions.findOneAsync({ _id: sessionId });
+      if (!userSession || !userSession.tags || !userSession.tags.length) {
+        console.log(`No user data found for session ${sessionId}. Returning random images.`);
+        return await CachedImages.rawCollection().aggregate([{ $sample: { size: 2 } }]).toArray();
+      }
+
+      // Convert user tag data into a weight map
+      const userTagWeights: Record<string, number> = {};
+      for (const tagEntry of userSession.tags) {
+        userTagWeights[tagEntry.tag] = tagEntry.weight;
+      }
+
+      // Fetch the images that the user has already seen
+      const imagesSeen = userSession.imagesSeen || [];
+      console.log('Images already seen:', imagesSeen);
+
+      // Fetch all images and filter out the ones the user has already seen
+      const allImages = await CachedImages.find({
+        _id: { $nin: imagesSeen } // Exclude images that are already in the imagesSeen list
+      }).fetchAsync();
+
+      // Log if no new images are found
+      if (!allImages.length) {
+        console.log(`No new images found. Returning random images.`);
+        return await CachedImages.rawCollection().aggregate([{ $sample: { size: 2 } }]).toArray();
+      }
+
+      // Log number of new images fetched
+      console.log(`Found ${allImages.length} new images.`);
+
+      // Score images based on user preferences
+      const scoredImages = allImages.map(image => {
+        let score = 0;
+
+        for (const tag of image.tags) {
+          if (userTagWeights[tag]) {
+            score += userTagWeights[tag]; // Apply user preference weight
+          }
+        }
+
+        return { ...image, score };
+      });
+
+      // Sort images by score (highest first)
+      scoredImages.sort((a, b) => b.score - a.score);
+
+      // Return top 2 recommended images
+      return scoredImages.slice(0, 2);
+    } catch (error) {
+      console.error('Error fetching recommended images:', error);
+      throw new Meteor.Error('recommendation-error', 'Failed to get recommended images');
+    }
+  },
 });
 
 const fetchAndCacheTopPosts = async () => {
@@ -175,17 +275,33 @@ const calculateTagData = async () => {
     // Initialize tag counters
     const tagCounts: Record<string, number> = {}; // Number of images each tag appears in
     const tagScores: Record<string, number> = {}; // Total score contributed by images each tag appears in
+    const tagCoOccurrences: Record<string, Record<string, number>> = {}; // Track how often tags appear together
     let totalScore = 0;
 
     for (const image of allImages) {
       if (!image.tags || !Array.isArray(image.tags)) continue;
+
+      // Filter out ignored tags before processing
+      const filteredTags = image.tags.filter(tag => !IGNORED_TAGS.has(tag));
+      if (filteredTags.length < 2) continue; // Ignore images with only one meaningful tag
 
       const imageScore = image.score || 0; // Ensure we have a numeric score
       totalScore += imageScore;
 
       for (const tag of image.tags) {
         tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-        tagScores[tag] = (tagScores[tag] || 0) + imageScore; // Sum up scores of images where this tag appears
+        tagScores[tag] = (tagScores[tag] || 0) + imageScore;
+
+        if (!tagCoOccurrences[tag]) {
+          tagCoOccurrences[tag] = {};
+        }
+
+        // Track co-occurrences
+        for (const otherTag of image.tags) {
+          if (tag !== otherTag) {
+            tagCoOccurrences[tag][otherTag] = (tagCoOccurrences[tag][otherTag] || 0) + 1;
+          }
+        }
       }
     }
 
@@ -197,22 +313,34 @@ const calculateTagData = async () => {
       const score = tagScores[tag] || 0;
       const existingTag = await TagData.findOneAsync({ _id: tag });
 
+      // Sort co-occurring tags by frequency (most common first)
+      const sharedTags = Object.entries(tagCoOccurrences[tag] || {})
+        .filter(([sharedTag]) => !IGNORED_TAGS.has(sharedTag)) // Remove ignored tags
+        .sort((a, b) => b[1] - a[1]) // Sort descending by frequency
+        .slice(0, 10) // Keep the top 10 most common shared tags
+        .map(([sharedTag]) => sharedTag); // Extract only tag names
+
       if (existingTag) {
-        if (existingTag.count !== count || existingTag.score !== score) {
+        if (
+          existingTag.count !== count ||
+          existingTag.score !== score ||
+          JSON.stringify(existingTag.sharedTags) !== JSON.stringify(sharedTags)
+        ) {
           await TagData.updateAsync(
             { _id: tag },
-            { $set: { count, score, updatedAt: new Date() } }
+            { $set: { count, score, sharedTags, updatedAt: new Date() } }
           );
-          //console.log(`Updated tag: ${tag}, Count: ${count}, Score: ${score}`);
+          //console.log(`Updated tag: ${tag}, Count: ${count}, Score: ${score}, Shared Tags: ${sharedTags}`);
         }
       } else {
         await TagData.insertAsync({
           _id: tag,
           count,
           score,
+          sharedTags,
           updatedAt: new Date(),
         });
-        //console.log(`Inserted new tag: ${tag}, Count: ${count}, Score: ${score}`);
+        //console.log(`Inserted new tag: ${tag}, Count: ${count}, Score: ${score}, Shared Tags: ${sharedTags}`);
       }
     }
 

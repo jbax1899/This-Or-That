@@ -2,31 +2,40 @@ import React, { useEffect, useState } from 'react';
 import { Meteor } from 'meteor/meteor';
 
 export const App = () => {
-  const [image1, setImage1] = useState<{ url: string; tags: string[] } | null>(null);
-  const [image2, setImage2] = useState<{ url: string; tags: string[] } | null>(null);
+  const [image1, setImage1] = useState<{ url: string; tags: string[]; id: string } | null>(null);
+  const [image2, setImage2] = useState<{ url: string; tags: string[]; id: string } | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [sessionId, setSessionId] = useState<string>(''); // Store session ID
 
   // Function to fetch new images from the server
   const fetchImages = async () => {
     try {
-      setLoading(true); // Set loading to true while fetching new images
-
-      // Fetch images from the server
-      const images = await Meteor.callAsync('getImageFromSafeBooru');
-
-      if (images && images.image1 && images.image2) {
-        // Set the new images
-        setImage1({ url: images.image1.url, tags: images.image1.tags });
-        setImage2({ url: images.image2.url, tags: images.image2.tags });
+      setLoading(true);
+      
+      // Replace with user session ID
+      const sessionId = localStorage.getItem('sessionId') || '';
+  
+      // Fetch recommended images
+      const images = await Meteor.callAsync('getRecommendedImages', sessionId);
+  
+      if (images && images.length >= 2) {
+        setImage1({ 
+          url: images[0].sample_url, 
+          tags: images[0].tags,
+          id: images[0]._id 
+        });
+        setImage2({
+          url: images[1].sample_url, 
+          tags: images[1].tags,
+          id: images[1]._id
+        });
       } else {
-        throw new Error('No images found in the response');
+        throw new Error('No images found');
       }
-      setLoading(false); // Set loading to false once images are fetched
+  
+      setLoading(false);
     } catch (error: any) {
       console.error('Error fetching images:', error.message || error);
-      alert('There was an error fetching the images. Please try again.');
-      setLoading(false); // Set loading to false even if there is an error
     }
   };
 
@@ -44,19 +53,23 @@ export const App = () => {
 
   const handleChoice = (imageNumber: number) => {
     if (!image1 || !image2) return;
-
+  
     // Identify the chosen and unchosen images
     const chosenImage = imageNumber === 1 ? image1 : image2;
     const unchosenImage = imageNumber === 1 ? image2 : image1;
-
-    //console.log('Chosen Image:', chosenImage.url, 'Tags:', chosenImage.tags);
-    //console.log('Unchosen Image:', unchosenImage.url, 'Tags:', unchosenImage.tags);
-
-    // Call server method to update tag weights, passing sessionId
-    Meteor.call('updateTagWeights', chosenImage.tags, unchosenImage.tags, sessionId);
-
-    // Fetch new images after the choice is made
-    fetchImages();
+  
+    // Get the image ID (from CachedImages)
+    const imageId = imageNumber === 1 ? chosenImage.id : unchosenImage.id;
+  
+    // Call the server method to update tag weights, passing sessionId and imageId
+    Meteor.call('updateTagWeights', chosenImage.tags, unchosenImage.tags, imageId, sessionId, (err: Meteor.Error | undefined) => {
+      if (err) {
+        console.error('Error updating tag weights:', err);
+      } else {
+        // Fetch new images after the choice is made
+        fetchImages();
+      }
+    });
   };
 
   if (loading) return <div>Loading images...</div>;

@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@babel/runtime": "^7.20.7",
+    "axios": "^1.7.9",
     "imports": "^1.0.0",
     "lightbox2": "^2.11.5",
     "meteor-node-stubs": "^1.2.5",
